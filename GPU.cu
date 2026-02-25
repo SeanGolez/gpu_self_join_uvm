@@ -724,6 +724,15 @@ void distanceTableNDGridBatches(std::vector<std::vector<DTYPE> > * NDdataPoints,
 
 	keyValPair * dev_keyValPairs;
 	gpuErrchk(cudaMallocManaged((void **)&dev_keyValPairs, keyValElementsSize * sizeof(keyValPair)));
+	
+	int deviceId;
+	cudaGetDevice(&deviceId);
+	cudaMemLocation gpuLoc;
+	gpuLoc.type = cudaMemLocationTypeDevice;
+	gpuLoc.id = deviceId;
+	cudaGetDevice(&deviceId);
+	gpuErrchk(cudaMemAdvise(dev_keyValPairs, keyValElementsSize * sizeof(keyValPair), cudaMemAdviseSetPreferredLocation, gpuLoc));
+	gpuErrchk(cudaMemPrefetchAsync(dev_keyValPairs, keyValElementsSize * sizeof(keyValPair), gpuLoc, 0, 0));
 
 	double tenduvmalloc=omp_get_wtime();
 
@@ -863,6 +872,7 @@ dev_gridCellNDMaskOffsets, dev_keyValPairs, dev_orderedQueryPntIDs, dev_workCoun
 	times->kernelExecutionTime = (milliseconds / 1000);
 
 #if PROBEANDSORT==1 && USENEIGHBORTABLE==1
+
 	double tableconstuctstart=omp_get_wtime();
 
 	tmpStruct.sizeOfDataArr=*dev_cnt;    
@@ -877,6 +887,11 @@ dev_gridCellNDMaskOffsets, dev_keyValPairs, dev_orderedQueryPntIDs, dev_workCoun
 #endif
 
 #if PROBEANDSORT==0
+	// cudaMemLocation cpuLoc;
+	// cpuLoc.type = cudaMemLocationTypeHost;
+	// cpuLoc.id = 0;
+	// gpuErrchk(cudaMemAdvise(dev_keyValPairs, *dev_cnt * sizeof(keyValPair), cudaMemAdviseSetPreferredLocation, cpuLoc));
+
 	// gnu parallel sort by key 
 	double tstart_sort = omp_get_wtime();
 	fprintf(stderr, "\nSorting pairs...");
