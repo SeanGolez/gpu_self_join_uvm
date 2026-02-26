@@ -65,10 +65,10 @@ bool compareByPointValue(const key_val_sort &a, const key_val_sort &b)
 }
 
 
-unsigned long long callGPUBatchEst(unsigned int * DBSIZE, DTYPE* dev_database, DTYPE* dev_epsilon, struct grid * dev_grid, 
+unsigned long long estimateResultSet(unsigned int * DBSIZE, DTYPE* dev_database, DTYPE* dev_epsilon, struct grid * dev_grid, 
 	unsigned int * dev_indexLookupArr, struct gridCellLookup * dev_gridCellLookupArr, DTYPE* dev_minArr, 
 	unsigned int * dev_nCells, unsigned int * dev_nNonEmptyCells, unsigned int * dev_gridCellNDMask, 
-	unsigned int * dev_gridCellNDMaskOffsets, unsigned int * dev_orderedQueryPntIDs, unsigned int * retNumBatches, unsigned int * retGPUBufferSize)
+	unsigned int * dev_gridCellNDMaskOffsets, unsigned int * dev_orderedQueryPntIDs)
 {
 
 
@@ -226,7 +226,7 @@ unsigned long long callGPUBatchEst(unsigned int * DBSIZE, DTYPE* dev_database, D
 	printf("\nFrom gpu cnt: %d, offset rate: %d", *cnt_batchEst,offsetRate);
 	
 	
-	unsigned int GPUBufferSize=GPUBUFFERSIZE;
+	// unsigned int GPUBufferSize=GPUBUFFERSIZE;
 
 	#ifndef PYTHON	
 	double alpha=0.05; //overestimation factor
@@ -241,7 +241,7 @@ unsigned long long callGPUBatchEst(unsigned int * DBSIZE, DTYPE* dev_database, D
 	printf("\nEstimated total result set size (with Alpha %f): %lu", alpha,estimatedTotalSizeWithAlpha);	
 	
 
-
+	/*
 	if (estimatedNeighbors<(GPUBufferSize*GPUSTREAMS))
 	{
 		printf("\nSmall buffer size, increasing alpha to: %f",alpha*3.0);
@@ -266,7 +266,7 @@ unsigned long long callGPUBatchEst(unsigned int * DBSIZE, DTYPE* dev_database, D
 		
 
 	printf("\nEnd Batch Estimator\n***********************************\n");
-
+	*/
 
 
 
@@ -713,7 +713,7 @@ void distanceTableNDGridBatches(std::vector<std::vector<DTYPE> > * NDdataPoints,
 
 	// unsigned int * dev_pointIDKey; //key
 	// unsigned int * dev_pointInDistValue; //value
-
+#if MINPREFETCH == 0
 	size_t keyValElementsSize = ((size_t)(KEYVALUEMEM / 2) * (1024 * 1024 * 1024)) / sizeof(unsigned int);
 	printf("\nNumber of allocated key value pairs: %zu", keyValElementsSize);
 	
@@ -724,20 +724,53 @@ void distanceTableNDGridBatches(std::vector<std::vector<DTYPE> > * NDdataPoints,
 
 	keyValPair * dev_keyValPairs;
 	gpuErrchk(cudaMallocManaged((void **)&dev_keyValPairs, keyValElementsSize * sizeof(keyValPair)));
-	
-	int deviceId;
-	cudaGetDevice(&deviceId);
-	cudaMemLocation gpuLoc;
-	gpuLoc.type = cudaMemLocationTypeDevice;
-	gpuLoc.id = deviceId;
-	cudaGetDevice(&deviceId);
-	gpuErrchk(cudaMemAdvise(dev_keyValPairs, keyValElementsSize * sizeof(keyValPair), cudaMemAdviseSetPreferredLocation, gpuLoc));
-	gpuErrchk(cudaMemPrefetchAsync(dev_keyValPairs, keyValElementsSize * sizeof(keyValPair), gpuLoc, 0, 0));
 
 	double tenduvmalloc=omp_get_wtime();
 
 	times->UVMAllocationTime = (tenduvmalloc - tstartuvmalloc);
 
+#elif MINPREFETCH == 1
+	// estimate result set
+	unsigned long long int keyValElementsSize=0;
+	double tstartbatchest=omp_get_wtime();
+	keyValElementsSize = estimateResultSet(DBSIZE, dev_database, dev_epsilon, dev_grid, dev_indexLookupArr,dev_gridCellLookupArr, dev_minArr, dev_nCells, dev_nNonEmptyCells, dev_gridCellNDMask,dev_gridCellNDMaskOffsets, dev_orderedQueryPntIDs);
+	double tendbatchest=omp_get_wtime();
+	printf("\nTime to estimate result set size: %f", tendbatchest - tstartbatchest);
+	printf("\nIn Calling fn: Estimated neighbors: %llu", keyValElementsSize);
+	times->batchEstimationTime = tendbatchest - tstartbatchest;
+	
+	double tstartuvmalloc=omp_get_wtime();
+
+	keyValPair * dev_keyValPairs;
+	gpuErrchk(cudaMallocManaged((void **)&dev_keyValPairs, keyValElementsSize * sizeof(keyValPair)));
+
+	double tenduvmalloc=omp_get_wtime();
+	times->UVMAllocationTime = (tenduvmalloc - tstartuvmalloc);
+	
+	double tstartuvmprefetch=omp_get_wtime();
+
+	// Only prefetch 80% of available memory to leave room for 
+	// stack, overhead, and dynamic faults.
+	size_t freeMem, totalMem;
+	cudaMemGetInfo(&freeMem, &totalMem);
+	size_t safeBytes = static_cast<size_t>(freeMem * 0.8);
+	size_t numSafeElementsSize = safeBytes / sizeof(keyValPair);
+
+	size_t prefetchElementsSize = min((size_t)keyValElementsSize, numSafeElementsSize);
+	printf("\nkeyValElementsSize: %llu, numSafeElementsSize: %zu, prefetchElementsSize: %zu", keyValElementsSize, numSafeElementsSize, prefetchElementsSize);
+
+	int deviceId;
+	cudaGetDevice(&deviceId);
+	cudaMemLocation gpuLoc;
+	gpuLoc.type = cudaMemLocationTypeDevice;
+	gpuLoc.id = deviceId;
+	gpuErrchk(cudaMemAdvise(dev_keyValPairs, keyValElementsSize * sizeof(keyValPair), cudaMemAdviseSetPreferredLocation, gpuLoc));
+	gpuErrchk(cudaMemPrefetchAsync(dev_keyValPairs, prefetchElementsSize * sizeof(keyValPair), gpuLoc, 0, 0));
+
+	double tenduvmprefetch=omp_get_wtime();
+	printf("\nTime to prefetch: %f", tenduvmprefetch - tstartuvmprefetch);
+
+#endif
 	//HOST RESULT ALLOCATION FOR THE GPU TO COPY THE DATA INTO A PINNED MEMORY ALLOCATION
 	//ON THE HOST
 	//pinned result set memory for the host
@@ -887,10 +920,13 @@ dev_gridCellNDMaskOffsets, dev_keyValPairs, dev_orderedQueryPntIDs, dev_workCoun
 #endif
 
 #if PROBEANDSORT==0
-	// cudaMemLocation cpuLoc;
-	// cpuLoc.type = cudaMemLocationTypeHost;
-	// cpuLoc.id = 0;
-	// gpuErrchk(cudaMemAdvise(dev_keyValPairs, *dev_cnt * sizeof(keyValPair), cudaMemAdviseSetPreferredLocation, cpuLoc));
+	// prefetch before sort
+	cudaMemLocation cpuLoc;
+    cpuLoc.type = cudaMemLocationTypeHost;
+    cpuLoc.id = 0;
+    gpuErrchk(cudaMemAdvise(dev_keyValPairs, *dev_cnt * sizeof(keyValPair), cudaMemAdviseSetPreferredLocation, cpuLoc));
+    gpuErrchk(cudaMemPrefetchAsync(dev_keyValPairs, *dev_cnt * sizeof(keyValPair), cpuLoc, 0, 0));
+    cudaDeviceSynchronize();
 
 	// gnu parallel sort by key 
 	double tstart_sort = omp_get_wtime();

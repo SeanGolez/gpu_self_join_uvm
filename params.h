@@ -17,7 +17,7 @@
 #define BLOCKSIZE 256
  
 //Number of dimensions of the data (n)
-#define GPUNUMDIM 57
+#define GPUNUMDIM 18
 
 //Number of indexed dimensions (k)
 #define NUMINDEXEDDIM 6
@@ -99,6 +99,9 @@
 
 // Number of bytes to allocate for key value pairs in GiB
 #define KEYVALUEMEM 200
+
+// Instead of KEYVALUEMEM, use batch estimator and prefetch up to 80% of device memory
+#define MINPREFETCH 0
 
 //probe-and-sort
 #define PROBEANDSORT 0
