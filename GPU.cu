@@ -924,18 +924,16 @@ dev_gridCellNDMaskOffsets, dev_keyValPairs, dev_orderedQueryPntIDs, dev_workCoun
 #endif
 
 #if PROBEANDSORT==0
+	// gnu parallel sort by key 
+	double tstart_sort = omp_get_wtime();
+
 	#if MINPREFETCH == 1
-		// prefetch before sort
 		cudaMemLocation cpuLoc;
 		cpuLoc.type = cudaMemLocationTypeHost;
 		cpuLoc.id = 0;
-		gpuErrchk(cudaMemAdvise(dev_keyValPairs, *dev_cnt * sizeof(keyValPair), cudaMemAdviseSetPreferredLocation, cpuLoc));
-		gpuErrchk(cudaMemPrefetchAsync(dev_keyValPairs, *dev_cnt * sizeof(keyValPair), cpuLoc, 0, 0));
-		cudaDeviceSynchronize();
+		gpuErrchk(cudaMemAdvise(dev_keyValPairs, *dev_cnt * sizeof(keyValPair), cudaMemAdviseUnsetPreferredLocation, cpuLoc));
 	#endif
 
-	// gnu parallel sort by key 
-	double tstart_sort = omp_get_wtime();
 	fprintf(stderr, "\nSorting pairs...");
 	__gnu_parallel::sort(dev_keyValPairs, dev_keyValPairs+*dev_cnt, compareKeyValPairs);
 	double tend_sort = omp_get_wtime();
