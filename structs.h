@@ -21,6 +21,7 @@ struct times
     float batchEstimationTime = 0;
 	float pinnedMemoryAllocationTime = 0;
 	float UVMAllocationTime = 0;
+	float UVMPrefetchTime = 0;
 	float kernelExecutionTime = 0;
     float deviceToPinnedCopyTime = 0;
 	float pinnedToPageableCopyTime = 0;

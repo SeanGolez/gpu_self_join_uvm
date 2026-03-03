@@ -269,7 +269,7 @@ int main(int argc, char *argv[])
 	char times_fname[]="gpu_times.txt";
 	ofstream gpu_times;
 	gpu_times.open(times_fname,ios::app);	
-	gpu_times<<GPUSTREAMS<<"\t"<<inputFname<<"\t"<<epsilon<<"\t"<<totalNeighbors<<"\t"<<times.totalTime<<"\t"<<times.batchEstimationTime<<"\t"<<times.pinnedMemoryAllocationTime<<"\t"<<times.UVMAllocationTime<<"\t"<<times.kernelExecutionTime<<"\t"<<times.deviceToPinnedCopyTime<<"\t"<<times.pinnedToPageableCopyTime<<"\t"<<times.resultSetAccessTime<<endl;
+	gpu_times<<GPUSTREAMS<<"\t"<<inputFname<<"\t"<<epsilon<<"\t"<<totalNeighbors<<"\t"<<times.totalTime<<"\t"<<times.batchEstimationTime<<"\t"<<times.pinnedMemoryAllocationTime<<"\t"<<times.UVMAllocationTime<<"\t"<<times.UVMPrefetchTime<<"\t"<<times.kernelExecutionTime<<"\t"<<times.deviceToPinnedCopyTime<<"\t"<<times.pinnedToPageableCopyTime<<"\t"<<times.resultSetAccessTime<<endl;
 	gpu_times.close();
 
 #if COUNTMETRICS==1

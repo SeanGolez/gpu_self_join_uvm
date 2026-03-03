@@ -730,6 +730,7 @@ void distanceTableNDGridBatches(std::vector<std::vector<DTYPE> > * NDdataPoints,
 	times->UVMAllocationTime = (tenduvmalloc - tstartuvmalloc);
 
 #elif MINPREFETCH == 1
+	/*
 	// estimate result set
 	unsigned long long int keyValElementsSize=0;
 	double tstartbatchest=omp_get_wtime();
@@ -738,7 +739,11 @@ void distanceTableNDGridBatches(std::vector<std::vector<DTYPE> > * NDdataPoints,
 	printf("\nTime to estimate result set size: %f", tendbatchest - tstartbatchest);
 	printf("\nIn Calling fn: Estimated neighbors: %llu", keyValElementsSize);
 	times->batchEstimationTime = tendbatchest - tstartbatchest;
-	
+	*/
+
+	size_t keyValElementsSize = ((size_t)(KEYVALUEMEM / 2) * (1024 * 1024 * 1024)) / sizeof(unsigned int);
+	printf("\nNumber of allocated key value pairs: %zu", keyValElementsSize);
+
 	double tstartuvmalloc=omp_get_wtime();
 
 	keyValPair * dev_keyValPairs;
@@ -755,9 +760,7 @@ void distanceTableNDGridBatches(std::vector<std::vector<DTYPE> > * NDdataPoints,
 	cudaMemGetInfo(&freeMem, &totalMem);
 	size_t safeBytes = static_cast<size_t>(freeMem * 0.8);
 	size_t numSafeElementsSize = safeBytes / sizeof(keyValPair);
-
-	size_t prefetchElementsSize = min((size_t)keyValElementsSize, numSafeElementsSize);
-	printf("\nkeyValElementsSize: %llu, numSafeElementsSize: %zu, prefetchElementsSize: %zu", keyValElementsSize, numSafeElementsSize, prefetchElementsSize);
+	printf("\nnumSafeElementsSize: %zu", numSafeElementsSize);
 
 	int deviceId;
 	cudaGetDevice(&deviceId);
@@ -765,10 +768,11 @@ void distanceTableNDGridBatches(std::vector<std::vector<DTYPE> > * NDdataPoints,
 	gpuLoc.type = cudaMemLocationTypeDevice;
 	gpuLoc.id = deviceId;
 	gpuErrchk(cudaMemAdvise(dev_keyValPairs, keyValElementsSize * sizeof(keyValPair), cudaMemAdviseSetPreferredLocation, gpuLoc));
-	gpuErrchk(cudaMemPrefetchAsync(dev_keyValPairs, prefetchElementsSize * sizeof(keyValPair), gpuLoc, 0, 0));
+	gpuErrchk(cudaMemPrefetchAsync(dev_keyValPairs, numSafeElementsSize * sizeof(keyValPair), gpuLoc, 0, 0));
 
 	double tenduvmprefetch=omp_get_wtime();
 	printf("\nTime to prefetch: %f", tenduvmprefetch - tstartuvmprefetch);
+	times->UVMPrefetchTime = tenduvmprefetch - tstartuvmprefetch;
 
 #endif
 	//HOST RESULT ALLOCATION FOR THE GPU TO COPY THE DATA INTO A PINNED MEMORY ALLOCATION
@@ -920,13 +924,15 @@ dev_gridCellNDMaskOffsets, dev_keyValPairs, dev_orderedQueryPntIDs, dev_workCoun
 #endif
 
 #if PROBEANDSORT==0
-	// prefetch before sort
-	cudaMemLocation cpuLoc;
-    cpuLoc.type = cudaMemLocationTypeHost;
-    cpuLoc.id = 0;
-    gpuErrchk(cudaMemAdvise(dev_keyValPairs, *dev_cnt * sizeof(keyValPair), cudaMemAdviseSetPreferredLocation, cpuLoc));
-    gpuErrchk(cudaMemPrefetchAsync(dev_keyValPairs, *dev_cnt * sizeof(keyValPair), cpuLoc, 0, 0));
-    cudaDeviceSynchronize();
+	#if MINPREFETCH == 1
+		// prefetch before sort
+		cudaMemLocation cpuLoc;
+		cpuLoc.type = cudaMemLocationTypeHost;
+		cpuLoc.id = 0;
+		gpuErrchk(cudaMemAdvise(dev_keyValPairs, *dev_cnt * sizeof(keyValPair), cudaMemAdviseSetPreferredLocation, cpuLoc));
+		gpuErrchk(cudaMemPrefetchAsync(dev_keyValPairs, *dev_cnt * sizeof(keyValPair), cpuLoc, 0, 0));
+		cudaDeviceSynchronize();
+	#endif
 
 	// gnu parallel sort by key 
 	double tstart_sort = omp_get_wtime();
